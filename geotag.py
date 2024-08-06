@@ -1,19 +1,48 @@
-# this script gets the metadata from each second of the SRT file that accompanies each MPEG file
-# use it to assign the metadata to the stills extracted in the other script
+# This script extracts stills from video and geotags them using the video's caption file (.SRT)
+# This was written as a first step to processing data from drones without flight planning control (e.g., DJI Mini 3 Pro)
+# there are three steps:
+#   1: parse the SRT file to get the lat/lon/alt for every frame
+#   2: extract stills using ffmpeg (this is the only external dependency)
+#   3: geotag the stills from 2 using the parsed data from 1
+# there are only two inputs:
+#   working_directory: where the input MP4 and SRT files are and where the output JPG files will go
+#   seconds_between: How many seconds should there be between stills?
 
-import re
+
+# Alex Morgan, Planetary Science Institute. amorgan@psi.edu
+# July 26, 2024
+
+####################################
+# Define the input parameters
+# each MP4 in the working directory must have an accompanying SRT
+working_directory = "H:/_iceland/mini_drone/0705"
+seconds_between = 2 # how many seconds between output images?
+
+####################################
+# Load packages
+# ffmpeg must be installed
 import pandas as pd
 import os
+
+# used in step 1:
+import re
 
 # these arent used until step 3:
 import piexif
 from PIL import Image
+import glob
 
+####################################
 # get all of the files
-# each MP4 must have an accompanying SRT
-folder = "H:/_iceland/mini_drone/0705"
-files = [f.replace(".SRT", "") for f in os.listdir(folder) if f.endswith(".SRT")]
+files_SRT = [f.replace(".SRT", "") for f in os.listdir(working_directory) if f.endswith(".SRT")]
+files_MP4 = [f.replace(".MP4", "") for f in os.listdir(working_directory) if f.endswith(".MP4")]
 
+# each SRT needs to have a matching MP4
+files = list(set(files_SRT) & set(files_MP4))
+
+# # TEMP: omit those I already did
+# files_JPG = list(set(["DJI_" + f.split("_")[1] for f in os.listdir(working_directory) if f.endswith("_GPS.jpg")]))
+# files = list(set(files) - set(files_JPG))
 
 #######################################################################
 # some functions for the steps below
@@ -45,7 +74,23 @@ def deg_to_dms_rational(deg):
     s = round((deg - d - m / 60) * 3600, 2)
     return (d, m, s)
 
-def decimal_to_dms_coordinates(lat, lon):
+# def create_gps_exif(lat, lon, alt):
+#     """Convert decimal degrees to EXIF-appropriate format."""
+#     lat_deg = deg_to_dms_rational(abs(lat))
+#     lon_deg = deg_to_dms_rational(abs(lon))
+
+#     lat_ref = 'N' if lat >= 0 else 'S'
+#     lon_ref = 'E' if lon >= 0 else 'W'
+
+#     return {
+#         piexif.GPSIFD.GPSLatitudeRef: lat_ref,
+#         piexif.GPSIFD.GPSLatitude: ((lat_deg[0], 1), (lat_deg[1], 1), (int(lat_deg[2] * 100), 100)),
+#         piexif.GPSIFD.GPSLongitudeRef: lon_ref,
+#         piexif.GPSIFD.GPSLongitude: ((lon_deg[0], 1), (lon_deg[1], 1), (int(lon_deg[2] * 100), 100)),
+#         piexif.GPSIFD.GPSAltitudeRef: 0,
+#         piexif.GPSIFD.GPSAltitude: (int(alt * 100), 100)
+#     }
+def create_gps_exif(lat, lon, alt, make, model, f_number, exposure_time, iso, focal_length, max_aperture_value):
     """Convert decimal degrees to EXIF-appropriate format."""
     lat_deg = deg_to_dms_rational(abs(lat))
     lon_deg = deg_to_dms_rational(abs(lon))
@@ -59,7 +104,7 @@ def decimal_to_dms_coordinates(lat, lon):
         piexif.GPSIFD.GPSLongitudeRef: lon_ref,
         piexif.GPSIFD.GPSLongitude: ((lon_deg[0], 1), (lon_deg[1], 1), (int(lon_deg[2] * 100), 100)),
         piexif.GPSIFD.GPSAltitudeRef: 0,
-        piexif.GPSIFD.GPSAltitude: (int(df_filtered.iloc[0]['altitude'] * 100), 100)
+        piexif.GPSIFD.GPSAltitude: (int(alt * 100), 100)
     }
 
 
@@ -75,7 +120,7 @@ for file in files:
     # STEP 1: extract the lat/lon/alt from the SRT file
     #######################################################################
 
-    SRT_filepath = os.path.join(folder, file + ".SRT")
+    SRT_filepath = os.path.join(working_directory, file + ".SRT")
 
     with open(SRT_filepath, 'r', encoding='utf-8') as SRT_file:
         data = SRT_file.read()
@@ -113,8 +158,11 @@ for file in files:
     # Apply the filter
     df_filtered = df[df["Time Range"].apply(includes_full_second)]
 
-    # update the row numbers
+    # reset the index
     df_filtered = df_filtered.reset_index(drop = True)
+
+    # Remove extras. This is controlled by seconds_between above
+    df_filtered = df_filtered[df_filtered.index % seconds_between == 0]
 
     # add a column for the image number
     df_filtered["image_name"] = file + "_" + df_filtered["frame_number"].astype(str).apply(lambda x: x.zfill(5)) + ".png"
@@ -130,11 +178,11 @@ for file in files:
     # create images from every frame of the video. Keep only those frames that match the filtered df from above
     # this probably isnt the bext approach (slow and high data volume), but it is fast enough and the extra volume gets immediately deleted
 
-    MP4_filepath = os.path.join(folder, file + ".MP4")
+    MP4_filepath = os.path.join(working_directory, file + ".MP4")
     os.system("ffmpeg -i " + MP4_filepath + " " + MP4_filepath.replace(".MP4", "") + "_%05d.png")
 
     # get a list of all the created PNG files
-    new_PNG_files = [f for f in os.listdir(folder) if f.startswith(file) and f.endswith('.png')]
+    new_PNG_files = [f for f in os.listdir(working_directory) if f.startswith(file) and f.endswith('.png')]
 
     numbers_to_keep = df_filtered["frame_number"].astype(str).tolist()
     numbers_to_keep = [f.zfill(5) for f in numbers_to_keep]
@@ -143,7 +191,7 @@ for file in files:
     for new_PNG_file in new_PNG_files:
         number = new_PNG_file[-9:-4]
         if number not in numbers_to_keep:
-            os.remove(os.path.join(folder, new_PNG_file))
+            os.remove(os.path.join(working_directory, new_PNG_file))
 
     print("\n Done with step 2 - frame each second \n")
 
@@ -158,17 +206,39 @@ for file in files:
 
         lat, lon, alt = row['latitude'], row['longitude'], row['altitude']
         
+        make = "DJI"
+        model = "FC3582"
+        
+        f_number, exposure_time, iso, focal_length, max_aperture_value = row['f_number'], row['exposure_time'], row['iso'], row['focal_length'], row['max_aperture_value']
+
         # Convert latitude and longitude to EXIF format
-        gps_info = decimal_to_dms_coordinates(lat, lon)
+        gps_info = create_gps_exif(lat, lon, alt)
         
         # Load image and insert EXIF data
-        image = Image.open(os.path.join(folder, image_name))
+        image = Image.open(os.path.join(working_directory, image_name))
         exif_dict = piexif.load(image.info['exif']) if 'exif' in image.info else {"0th": {}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}, "thumbnail": None}
         exif_dict['GPS'] = gps_info
         exif_bytes = piexif.dump(exif_dict)
         
         # Save the image with the new EXIF data
-        image.save(os.path.join(folder, image_name.replace(".png", "_GPS.jpg")), "jpeg", exif = exif_bytes)
+        image.save(os.path.join(working_directory, image_name.replace(".png", "_GPS.jpg")), "jpeg", exif = exif_bytes)
+
+    # finally, delete all the un-geotagged png files
+
+    files = glob.glob(os.path.join(working_directory, "*.png"))
+    print(files)
+
+    errors = []
+    for file in files:
+        try:
+            os.remove(file)
+        except:
+            errors.append(file.replace(working_directory, ""))
+    
+    if len(errors) > 0:
+        print("Could not delete the following:")
+        print(errors)
+
 
     print("\n Done with step 3 - geotagging \n")
     print("\n*********************************\n*********************************\n")
