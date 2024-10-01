@@ -65,49 +65,6 @@ def includes_full_second(time_range):
     # Check if the time range spans a full second
     return int(start_seconds) != int(end_seconds)
 
-####################################
-# FOR STEP 3
-def deg_to_dms_rational(deg):
-    """Convert degrees to (degree, minute, second) tuple."""
-    d = int(deg)
-    m = int((deg - d) * 60)
-    s = round((deg - d - m / 60) * 3600, 2)
-    return (d, m, s)
-
-# def create_gps_exif(lat, lon, alt):
-#     """Convert decimal degrees to EXIF-appropriate format."""
-#     lat_deg = deg_to_dms_rational(abs(lat))
-#     lon_deg = deg_to_dms_rational(abs(lon))
-
-#     lat_ref = 'N' if lat >= 0 else 'S'
-#     lon_ref = 'E' if lon >= 0 else 'W'
-
-#     return {
-#         piexif.GPSIFD.GPSLatitudeRef: lat_ref,
-#         piexif.GPSIFD.GPSLatitude: ((lat_deg[0], 1), (lat_deg[1], 1), (int(lat_deg[2] * 100), 100)),
-#         piexif.GPSIFD.GPSLongitudeRef: lon_ref,
-#         piexif.GPSIFD.GPSLongitude: ((lon_deg[0], 1), (lon_deg[1], 1), (int(lon_deg[2] * 100), 100)),
-#         piexif.GPSIFD.GPSAltitudeRef: 0,
-#         piexif.GPSIFD.GPSAltitude: (int(alt * 100), 100)
-#     }
-def create_gps_exif(lat, lon, alt, make, model, f_number, exposure_time, iso, focal_length, max_aperture_value):
-    """Convert decimal degrees to EXIF-appropriate format."""
-    lat_deg = deg_to_dms_rational(abs(lat))
-    lon_deg = deg_to_dms_rational(abs(lon))
-
-    lat_ref = 'N' if lat >= 0 else 'S'
-    lon_ref = 'E' if lon >= 0 else 'W'
-
-    return {
-        piexif.GPSIFD.GPSLatitudeRef: lat_ref,
-        piexif.GPSIFD.GPSLatitude: ((lat_deg[0], 1), (lat_deg[1], 1), (int(lat_deg[2] * 100), 100)),
-        piexif.GPSIFD.GPSLongitudeRef: lon_ref,
-        piexif.GPSIFD.GPSLongitude: ((lon_deg[0], 1), (lon_deg[1], 1), (int(lon_deg[2] * 100), 100)),
-        piexif.GPSIFD.GPSAltitudeRef: 0,
-        piexif.GPSIFD.GPSAltitude: (int(alt * 100), 100)
-    }
-
-
 #######################################################################
 # Now loop over all of the video files
 #######################################################################
@@ -173,7 +130,7 @@ for file in files:
     print("\n Done with step 1 - lat/lon from SRT files \n")
 
     #######################################################################
-    # STEP 2: extract the stills from the video. One each second
+    # STEP 2: extract the stills from the video
     #######################################################################
     # create images from every frame of the video. Keep only those frames that match the filtered df from above
     # this probably isnt the bext approach (slow and high data volume), but it is fast enough and the extra volume gets immediately deleted
@@ -193,35 +150,15 @@ for file in files:
         if number not in numbers_to_keep:
             os.remove(os.path.join(working_directory, new_PNG_file))
 
-    print("\n Done with step 2 - frame each second \n")
+    print("\n Done with step 2 - frames extracted \n")
 
-    #######################################################################
-    # STEP 3: geotag the frames
-    #######################################################################
+    
 
 
-    # Loop over each image and add the geotagging data
-    for index, row in df_filtered.iterrows():
-        image_name = row['image_name']
-
-        lat, lon, alt = row['latitude'], row['longitude'], row['altitude']
-        
-        make = "DJI"
-        model = "FC3582"
-        
-        f_number, exposure_time, iso, focal_length, max_aperture_value = row['f_number'], row['exposure_time'], row['iso'], row['focal_length'], row['max_aperture_value']
-
-        # Convert latitude and longitude to EXIF format
-        gps_info = create_gps_exif(lat, lon, alt)
-        
-        # Load image and insert EXIF data
-        image = Image.open(os.path.join(working_directory, image_name))
-        exif_dict = piexif.load(image.info['exif']) if 'exif' in image.info else {"0th": {}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}, "thumbnail": None}
-        exif_dict['GPS'] = gps_info
-        exif_bytes = piexif.dump(exif_dict)
-        
-        # Save the image with the new EXIF data
-        image.save(os.path.join(working_directory, image_name.replace(".png", "_GPS.jpg")), "jpeg", exif = exif_bytes)
+    #########################################################
+    #########################################################
+    #########################################################
+    # delete below???
 
     # finally, delete all the un-geotagged png files
 
